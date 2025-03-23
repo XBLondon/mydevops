@@ -1,97 +1,79 @@
-version: "3.8"
+name: CI/CD Pipeline
 
-services:      
-  mongodb:
-    image: mongo
-    container_name: mongodb
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongodb_data:/data/db
-    networks:
-      - mynetwork
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
 
-  auth-service:
-    build: ./auth-service
-    container_name: auth-service
-    ports:
-      - "5001:5000"
-    depends_on:
-      - mongodb
-    env_file:
-      - ./auth-service/.env
-    networks:
-      - mynetwork
+jobs:
+  build:
+    runs-on: ubuntu-latest
 
-  product-service:
-    build: ./product-service
-    container_name: product-service
-    ports:
-      - "5002:5000"
-    depends_on:
-      - mongodb
-    env_file:
-      - ./product-service/.env
-    networks:
-      - mynetwork
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
 
-  order-service:
-    build: ./order-service
-    container_name: order-service
-    ports:
-      - "5003:5000"
-    depends_on:
-      - mongodb
-    env_file:
-      - ./order-service/.env
-    networks:
-      - mynetwork
+      - name: Set Up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
 
-  payment-service:
-    build: ./payment-service
-    container_name: payment-service
-    ports:
-      - "5004:5000"
-    depends_on:
-      - mongodb
-    env_file:
-      - ./payment-service/.env
-    networks:
-      - mynetwork
+      - name: Install Dependencies
+        run: |
+          if [ -d "auth-service" ]; then cd auth-service && npm ci && cd ..; fi
+          if [ -d "product-service" ]; then cd product-service && npm ci && cd ..; fi
+          if [ -d "order-service" ]; then cd order-service && npm ci && cd ..; fi
+          if [ -d "payment-service" ]; then cd payment-service && npm ci && cd ..; fi
 
-  prometheus:
-    image: prom/prometheus:latest
-    container_name: prometheus
-    ports:
-      - "9091:9090"  # Prometheus UI
-    volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml  # Mount Prometheus config file
-    networks:
-      - mynetwork
-    depends_on:
-      - auth-service
-      - product-service
-      - order-service
-      - payment-service
+  test:
+    runs-on: ubuntu-latest
+    needs: build
 
-  grafana:
-    image: grafana/grafana:latest
-    container_name: grafana
-    ports:
-      - "3001:3000"  # Grafana UI
-    environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin  # Set the Grafana admin password
-    volumes:
-      - grafana_data:/var/lib/grafana  # Persistent storage for Grafana data
-    networks:
-      - mynetwork
-    depends_on:
-      - prometheus
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
 
-volumes:
-  mongodb_data:
-  grafana_data:
+      - name: Run Tests
+        run: |
+          if [ -d "auth-service" ]; then cd auth-service && npm test && cd ..; fi
+          if [ -d "product-service" ]; then cd product-service && npm test && cd ..; fi
+          if [ -d "order-service" ]; then cd order-service && npm test && cd ..; fi
+          if [ -d "payment-service" ]; then cd payment-service && npm test && cd ..; fi
 
-networks:
-  mynetwork:
-    driver: bridge
+  docker-build:
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Login to DockerHub
+        run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+
+      - name: Build and Push Docker Images
+        run: |
+          if [ -d "auth-service" ]; then docker build -t xblondon/auth-service:latest ./auth-service && docker push xblondon/auth-service:latest; fi
+          if [ -d "product-service" ]; then docker build -t xblondon/product-service:latest ./product-service && docker push xblondon/product-service:latest; fi
+          if [ -d "order-service" ]; then docker build -t xblondon/order-service:latest ./order-service && docker push xblondon/order-service:latest; fi
+          if [ -d "payment-service" ]; then docker build -t xblondon/payment-service:latest ./payment-service && docker push xblondon/payment-service:latest; fi
+
+  monitor:
+    runs-on: ubuntu-latest
+    needs: docker-build
+
+    steps:
+      - name: Set Up Prometheus and Grafana
+        run: |
+          docker-compose -f docker-compose.yml up -d prometheus grafana
+          
+      - name: Monitor Services in Prometheus
+        run: |
+          curl http://localhost:9090/metrics  # Check if Prometheus is scraping metrics correctly
+
+      - name: Restart Docker Compose with Services
+        run: |
+          docker-compose -f docker-compose.yml up -d

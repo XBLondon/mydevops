@@ -66,6 +66,18 @@ jobs:
     needs: docker-build
 
     steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Verify docker-compose.yml File Existence
+        run: |
+          if [ -f "docker-compose.yml" ]; then
+            echo "docker-compose.yml exists!"
+          else
+            echo "docker-compose.yml does NOT exist!"
+            exit 1
+          fi
+
       - name: Install Docker Compose
         run: |
           sudo curl -L "https://github.com/docker/compose/releases/download/$(curl -s https://api.github.com/repos/docker/compose/releases/latest | jq -r .tag_name)/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
@@ -73,12 +85,14 @@ jobs:
 
       - name: Set Up Prometheus and Grafana
         run: |
-          docker-compose -f docker-compose.yml up -d prometheus grafana
+          # Ensure the docker-compose.yml file is in the root directory
+          if [ -f "docker-compose.yml" ]; then
+            docker-compose -f docker-compose.yml up -d prometheus grafana
+          else
+            echo "docker-compose.yml file not found!"
+            exit 1
+          fi
           
       - name: Monitor Services in Prometheus
         run: |
           curl http://localhost:9090/metrics  # Check if Prometheus is scraping metrics correctly
-
-      - name: Restart Docker Compose with Services
-        run: |
-          docker-compose -f docker-compose.yml up -d

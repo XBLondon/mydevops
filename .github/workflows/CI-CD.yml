@@ -68,14 +68,28 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
-        
+
+      - name: Verify docker-compose.yml File Existence
+        run: |
+          if [ -f "docker-compose.yaml" ]; then
+            echo "docker-compose.yaml exists!"
+          else
+            echo "docker-compose.yaml does NOT exist!"
+            exit 1
+          fi
+
+      - name: Install Docker Compose
+        run: |
+          sudo curl -L "https://github.com/docker/compose/releases/download/$(curl -s https://api.github.com/repos/docker/compose/releases/latest | jq -r .tag_name)/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+          sudo chmod +x /usr/local/bin/docker-compose
+
       - name: Set Up Prometheus and Grafana
         run: |
           # Ensure the docker-compose.yml file is in the root directory
-          if [ -f "docker-compose.yml" ]; then
-            docker-compose -f docker-compose.yml up -d prometheus grafana
+          if [ -f "docker-compose.yaml" ]; then
+            docker-compose -f docker-compose.yaml up -d prometheus grafana
           else
-            echo "docker-compose.yml file not found!"
+            echo "docker-compose.yaml file not found!"
             exit 1
           fi
           
